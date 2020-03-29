@@ -1,22 +1,24 @@
-from getch.getch import find_getch
-from tikasuport import tikasuport
-from unidecode import unidecode
-import os
-import atexit
 import argparse
-from subprocess import Popen
-from tika import parser
+import atexit
+import os
 import re
+from subprocess import Popen
+from getch.getch import find_getch
+from tika import parser
+from tikasuport import tikasuport
 
 home = os.path.expanduser('~')
-argsparser = argparse.ArgumentParser(prog='fbquiz', description='Programa de auxílio à resolução de questões da apostila de Fernandinho.')
+
+argsparser = argparse.ArgumentParser(prog='fbquiz', description='Programa de auxílio à resolução de questões da '
+                                                                'apostila de Fernandinho.')
 argsparser.add_argument('apostila', help='Caminho do arquivo PDF da apostila.')
-argsparser.add_argument('--download', dest='should_download', action='store_true', \
-help='Baixa o tika-server-1.24.jar de um site remoto para ' + home + '.tika/')
-argsparser.add_argument('--tika-path', dest='tika_server_path', default=home + '/.tika/tika-server-1.24.jar', \
-help='Indica o caminho para tika-server-1.24.jar.')
+argsparser.add_argument('--download', dest='should_download', action='store_true',
+                        help='Baixa o tika-server-1.24.jar de um site remoto para ' + home + '.tika/')
+argsparser.add_argument('--tika-path', dest='tika_server_path', default=home + '/.tika/tika-server-1.24.jar',
+                        help='Indica o caminho para tika-server-1.24.jar.')
 
 args = argsparser.parse_args()
+
 getch = find_getch()
 
 if args.should_download:
@@ -25,95 +27,111 @@ else:
     tikasuport.check_tika_exists(args.tika_server_path)
 
 pipe = os.pipe()
+
 server = Popen(['java', '-jar', args.tika_server_path], stdout=pipe[1], stdin=None, stderr=pipe[1])
 atexit.register(server.terminate)
 
 tikasuport.wait_for_tika(pipe[0])
 
-raw = parser.from_file(args.apostila, "http://localhost:9998/tika")
-content = list(filter(lambda a: a != '', raw['content'].split('\n')))
-content = list(filter(lambda a: len(a) != 1, content))
+raw = parser.from_file(args.apostila, 'http://localhost:9998/tika')
 
-gabarito = list()
-gabarito_index = 0
+# Removes blank lines and page numbers
+content = list(filter(lambda a: len(a) > 1, raw['content'].split('\n')))
+
+for i in content[:178]:
+    print(i)
+
+correct_answers = list()
+correct_answers_index = 0
 for i in content:
-    if "PRÉ-AULA PRÉ-AULA" in i:
-        gabarito_index = content.index(i)
+    if 'PRÉ-AULA PRÉ-AULA' in i:
+        correct_answers_index = content.index(i)
 
-to_remove = ["PRÉ-AULA " * 6, "AULA DE REVISÃO " * 6, "TEREFA DE CASA " * 6]
+to_be_removed = ['PRÉ-AULA ' * 6, 'AULA DE REVISÃO ' * 6, 'TEREFA DE CASA ' * 6]
 
-gabarito = list(filter(lambda a: not a in to_remove, content[gabarito_index:]))
+correct_answers = list(filter(lambda a: a not in to_be_removed, content[correct_answers_index:]))
 
-gabarito = list(filter(lambda a: not re.match("^\s|\d*$", a), ''.join(gabarito).split()))
+correct_answers = list(filter(lambda a: not re.match('^\s|\d*$', a), ''.join(correct_answers).split()))
 romano_i = 0
 
-for i in gabarito:
-    if re.match("^I|^V", i):
-        del gabarito[gabarito.index(i)]
-for i in gabarito:
-    print(i, end=' ')
-getch()
+for i in correct_answers:
+    if re.match('^I|^V', i):
+        del correct_answers[correct_answers.index(i)]
 
-#for week in range(0, 4):
-#    for subject in range(0, 6):
-#        for lesson in range(0, 3):
-#            if lesson
+print('Selecione a semana que deseja estudar (número): ')
 
-print("Selecione a semana que deseja estudar (número): ")
+content_no_page_num = list(filter(lambda a: not re.match('^[1-9]', a), content))
 
-def _is_not_num(a):
-    for i in range(1, 10):
-        if a[0] == str(i):
-            return False
-    return True
-#for i in content:
-#    print(i)
-getch()
-content_no_page_num = list(filter(_is_not_num, content))
-#for i in range(0, 160):
-#    print(content[i])
-semanas = []
-gabarito = []
+weeks = []
 for row in content:
-    if len(semanas) == 4:
+    if len(weeks) == 4:
         break
-    if "SEMANA" in row:
-        semanas.append(row)
-print(semanas)
+    if 'SEMANA' in row:
+        weeks.append(row)
+print(weeks)
 
-num_semana = getch()
-semana = ''
-for match in semanas:
-    if match[7] == num_semana:
-        semana = match
-        semana_i = semana.index(match)
+week_n = getch()
+week = ''
+for match in weeks:
+    if match[7] == week_n:
+        week = match
 
 print('Agora, selecione a disciplina que quer estudar: ')
 print('[B]iologia [F]ísica [Q]uímica [M]atemática [L]inguagens [H]umanas')
 subject = getch().upper()
-subject_i = ['B', 'F', 'Q', 'M', 'L', 'H'].index(subject)
 
-print('Por fim, selecione uma categoria: \n[P]ré-aula [R]evisão [C]asa')
+print('Por fim, selecione uma categoria: \n[P]ré-aula [R]evisão [C]asa\n')
 category = getch().upper()
+
+# Manipulates the table of contents measuring the distance from the line 
+# indicating the selected week to the line of the desired section and 
+# then extracts the page number that is located in the last two digits 
+# in the line.
+# Distance from the week header to the subject header in the PDF table of
+# contents:
+w_subj_dist = {'B': 1, 'F': 6, 'Q': 11, 'M': 16, 'L': 21, 'H': 26}
+# Similar
+subj_cat_dist = {'P': 2, 'R': 3, 'C': 4}
+
+page = content_no_page_num[content_no_page_num.index(week) + w_subj_dist[subject] + subj_cat_dist[category]]
+
+# Extracts page number
+page = page[::-1][:3][::-1]
+
+# Removes trailing whitespaces before the number
+page = str(page).strip() + ' '
+
+# Search for the line containing only the page number. From the index
+# of that line are located the desired exercises:
+page_i = content.index(page)
+
+# These will be used to find the right index in correct_answers:
+week_i = weeks.index(week)
+subject_i = ['B', 'F', 'Q', 'M', 'L', 'H'].index(subject)
 category_i = ['P', 'R', 'C'].index(category)
 
-page = content_no_page_num[ \
-content_no_page_num.index(semana) + \
-{'B': 1, 'F': 6, 'Q': 11, 'M': 16, 'L': 21, 'H': 26}[subject] + \
-{'P': 2, 'R': 3, 'C': 4}[category] ]\
-[::-1][:3][::-1]
-page_i = content.index(page)
-output = []
-
-for i in range(2, 7):
-    for i in range(page_i + 1, content.index(list(filter(lambda a: f'0{i})' in a, content[page_i + 2:]))[0])):
-        output.append(content[i])
+num_of_questions = int()
+if category == 'C':
+    num_of_questions = 15
+else:
+    num_of_questions = 5
+next_question_i = page_i + 1
+for i in range(0, num_of_questions):
+    current_question_i = next_question_i
+    output = list()
+    if not i + 1 == num_of_questions:
+        next_question_i = content.index(list(filter(lambda a: f'0{i + 2})' in a, content[current_question_i + 2:]))[0])
+    else:
+        next_question_i = content.index(list(filter(lambda a: '01)' in a, content[current_question_i + 2:]))[0])
+    # Appends to output all the lines from the current question to the next one:
+    for ii in range(current_question_i, next_question_i):
+        output.append(content[ii])
     for line in output:
         print(line)
-    answer = getch()
-    if answer == gabarito[semana_i * 150 + category_i * 30 + subject_i]:
-        print("Resposta correta!")
+    print('\n')
+    answer = getch().upper()
+    if answer == correct_answers[week_i * 150 + category_i * 30 + subject_i + i * 6]:
+        print('Resposta correta!', end='\n\n')
     else:
-        print(f"Resposta errada! Gabarito: {gabarito[semana_i * 150 + category_i * 30 + subject_i]}")
-#for i in range(1, 6):
-#    print('\n'.join(output).split('0' + str(i) + ')'))
+        print(f'Resposta errada! Gabarito: {correct_answers[week_i * 150 + category_i * 30 + subject_i + i * 6]}',
+              end='\n\n')
